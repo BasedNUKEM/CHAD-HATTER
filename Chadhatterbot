@@ -1,0 +1,197 @@
+import json
+import os
+import datetime
+import requests
+import tweepy
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, ContextTypes
+
+# Constants (replace with your actual values)
+TELEGRAM_TOKEN = 'YOUR_TELEGRAM_TOKEN_HERE'
+TWITTER_BEARER_TOKEN = 'YOUR_TWITTER_BEARER_TOKEN_HERE'  # For tweepy Client
+BASESCAN_API_KEY = 'YOUR_BASESCAN_API_KEY_HERE'
+CONTRACT_ADDRESS = '0x2511bba5ae4ff53c7942251777964153e25588952e1'
+DEXSCREENER_URL = 'https://api.dexscreener.com/latest/dex/pairs/base/0x50a01f509d3455632ea906c2e5e7c8f2f836b21d'
+OFFICIAL_X_USERNAME = 'basewifhat'
+OFFICIAL_X_URL = 'https://x.com/basewifhat'
+UNISWAP_BUY_URL = 'https://app.uniswap.org/#/swap?outputCurrency=' + CONTRACT_ADDRESS + '&chain=base'  # Example Uniswap link
+DEXSCREENER_CHART_URL = 'https://dexscreener.com/base/0x50a01f509d3455632ea906c2e5e7c8f2f836b21d'
+CHAT_ID = -1001234567890  # Your Telegram group chat ID (integer, get via bot or API)
+SHILL_MESSAGE = "Your shill of the day is ready, Chad: Tired of the same old dogs and frogs? The Hattenning is here on Base. Zero tax, community-run, and an unstoppable vibe. Don't be late to the party. $BWIF #Base #BaseWifHat"
+LAST_TWEET_FILE = 'last_tweet_id.json'  # For storing last seen tweet ID
+
+# Milestones
+MC_TARGET = 1000000
+HOLDERS_TARGET = 1000000
+LP_TARGET = 100000
+TG_TARGET = 5000
+X_FOLLOWERS_TARGET = 10000
+
+# Data Fetching Functions
+async def get_price_mc_lp():
+    try:
+        response = requests.get(DEXSCREENER_URL)
+        response.raise_for_status()
+        data = response.json()['pair']
+        price = float(data['priceUsd'])
+        mc = data['fdv']
+        lp = data['liquidity']['usd']
+        return price, mc, lp
+    except Exception as e:
+        print(f"Error fetching DexScreener: {e}")
+        return 0, 0, 0
+
+async def get_holder_count():
+    try:
+        url = f"https://api.basescan.org/api?module=stats&action=tokenholdercount&contractaddress={CONTRACT_ADDRESS}&apikey={BASESCAN_API_KEY}"
+        response = requests.get(url)
+        response.raise_for_status()
+        return int(response.json()['result'])
+    except Exception as e:
+        print(f"Error fetching holder count: {e}")
+        return 0
+
+async def get_mention_count(client: tweepy.Client):
+    try:
+        end_time = datetime.datetime.utcnow()
+        start_time = end_time - datetime.timedelta(hours=24)
+        response = client.get_recent_tweets_count(query="$BWIF OR #BWIF -is:retweet", start_time=start_time, end_time=end_time, granularity='day')
+        return response.data[0]['tweet_count'] if response.data else 0
+    except Exception as e:
+        print(f"Error fetching mention count: {e}")
+        return 0
+
+async def get_x_followers(client: tweepy.Client):
+    try:
+        user = client.get_user(username=OFFICIAL_X_USERNAME, user_fields=['public_metrics'])
+        return user.data.public_metrics['followers_count']
+    except Exception as e:
+        print(f"Error fetching X followers: {e}")
+        return 0
+
+async def get_tg_members(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        return await context.bot.get_chat_member_count(chat_id=CHAT_ID)
+    except Exception as e:
+        print(f"Error fetching TG members: {e}")
+        return 0
+
+def get_hattenning_level(mentions: int):
+    if mentions <= 50:
+        return "Simmering... 🔥"
+    elif mentions <= 150:
+        return "Brewing Chaos! 🚀"
+    else:
+        return "FULL BLOWN HATTENING! 💥"
+
+def create_progress_bar(progress: float) -> str:
+    filled = int(progress / 10)
+    empty = 10 - filled
+    return "█" * filled + "▒" * empty
+
+# Load/Save last tweet ID
+def load_last_tweet_id():
+    if os.path.exists(LAST_TWEET_FILE):
+        with open(LAST_TWEET_FILE, 'r') as f:
+            data = json.load(f)
+            return data.get('last_id')
+    return None
+
+def save_last_tweet_id(tweet_id: str):
+    with open(LAST_TWEET_FILE, 'w') as f:
+        json.dump({'last_id': tweet_id}, f)
+
+# Command Handlers
+async def hatcheck(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    client = tweepy.Client(bearer_token=TWITTER_BEARER_TOKEN)
+    price, mc, lp = await get_price_mc_lp()
+    holders = await get_holder_count()
+    mentions = await get_mention_count(client)
+    x_followers = await get_x_followers(client)
+    tg_members = await get_tg_members(context)
+
+    mc_progress = min((mc / MC_TARGET) * 100, 100)
+    holders_progress = min((holders / HOLDERS_TARGET) * 100, 100)
+    lp_progress = min((lp / LP_TARGET) * 100, 100)
+    tg_progress = min((tg_members / TG_TARGET) * 100, 100)
+    x_progress = min((x_followers / X_FOLLOWERS_TARGET) * 100, 100)
+
+    hattenning = get_hattenning_level(mentions)
+
+    message = (
+        f"🧢 CHAD-HATTER Status Update:\n\n"
+        f"Live Stats:\n"
+        f"- Current Price: ${price:.8f}\n"
+        f"- Market Cap: ${mc:,.0f}\n"
+        f"- Holder Count: {holders:,}\n\n"
+        f"The Hattenning Meter: {hattenning} ({mentions} mentions in last 24h)\n\n"
+        f"Milestone Progress:\n"
+        f"- Market Cap: {create_progress_bar(mc_progress)} ({mc_progress:.1f}%)\n"
+        f"- Holders: {create_progress_bar(holders_progress)} ({holders_progress:.1f}%)\n"
+        f"- Liquidity Pool: {create_progress_bar(lp_progress)} ({lp_progress:.1f}%)\n"
+        f"- Telegram Members: {create_progress_bar(tg_progress)} ({tg_progress:.1f}%)\n"
+        f"- X Followers: {create_progress_bar(x_progress)} ({x_progress:.1f}%)\n"
+    )
+
+    keyboard = [
+        [
+            InlineKeyboardButton("Buy on Uniswap", url=UNISWAP_BUY_URL),
+            InlineKeyboardButton("View Chart", url=DEXSCREENER_CHART_URL),
+            InlineKeyboardButton("X.com Page", url=OFFICIAL_X_URL),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(message, reply_markup=reply_markup)
+
+async def raid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Usage: /raid <link to tweet>")
+        return
+    link = context.args[0]
+    message = (
+        "🎩 HATTER'S RAID ALERT! 🎩\n"
+        "It's time to go down the rabbit hole! Let's show them how mad we are.\n"
+        f"TARGET ACQUIRED: {link}\n"
+        "MISSION: Like, Repost, and Comment with #BWIF!"
+    )
+    await update.message.reply_text(message)
+
+async def shill(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(SHILL_MESSAGE)
+
+# Automated Tweet Checker
+async def check_for_new_tweets(context: ContextTypes.DEFAULT_TYPE):
+    client = tweepy.Client(bearer_token=TWITTER_BEARER_TOKEN)
+    try:
+        user = client.get_user(username=OFFICIAL_X_USERNAME)
+        user_id = user.data.id
+        last_id = load_last_tweet_id()
+        kwargs = {'id': user_id, 'max_results': 10}
+        if last_id:
+            kwargs['since_id'] = last_id
+
+        response = client.get_users_tweets(**kwargs)
+        if response.data:
+            for tweet in reversed(response.data):  # Oldest to newest
+                tweet_url = f"https://x.com/{OFFICIAL_X_USERNAME}/status/{tweet.id}"
+                await context.bot.send_message(chat_id=CHAT_ID, text=f"New update from @basewifhat: {tweet.text}\n{tweet_url}")
+            save_last_tweet_id(response.data[0].id)  # Save newest
+    except Exception as e:
+        print(f"Error checking tweets: {e}")
+
+# Main Bot Setup
+def main():
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
+
+    application.add_handler(CommandHandler("hatcheck", hatcheck))
+    application.add_handler(CommandHandler("raid", raid))
+    application.add_handler(CommandHandler("shill", shill))
+
+    # Automated job (every 5 minutes)
+    application.job_queue.run_repeating(check_for_new_tweets, interval=300, first=0)
+
+    application.run_polling()
+
+if __name__ == "__main__":
+    main()
