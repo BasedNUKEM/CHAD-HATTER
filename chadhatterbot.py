@@ -1,7 +1,7 @@
 import json
 import os
 import datetime
-import requests
+import aiohttp
 import tweepy
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -30,13 +30,14 @@ X_FOLLOWERS_TARGET = 10000
 # Data Fetching Functions
 async def get_price_mc_lp():
     try:
-        response = requests.get(DEXSCREENER_URL)
-        response.raise_for_status()
-        data = response.json()['pair']
-        price = float(data['priceUsd'])
-        mc = data['fdv']
-        lp = data['liquidity']['usd']
-        return price, mc, lp
+        async with aiohttp.ClientSession() as session:
+            async with session.get(DEXSCREENER_URL) as response:
+                response.raise_for_status()
+                data = (await response.json())['pair']
+                price = float(data['priceUsd'])
+                mc = data['fdv']
+                lp = data['liquidity']['usd']
+                return price, mc, lp
     except Exception as e:
         print(f"Error fetching DexScreener: {e}")
         return 0, 0, 0
@@ -44,9 +45,11 @@ async def get_price_mc_lp():
 async def get_holder_count():
     try:
         url = f"https://api.basescan.org/api?module=stats&action=tokenholdercount&contractaddress={CONTRACT_ADDRESS}&apikey={BASESCAN_API_KEY}"
-        response = requests.get(url)
-        response.raise_for_status()
-        return int(response.json()['result'])
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                response.raise_for_status()
+                data = await response.json()
+                return int(data['result'])
     except Exception as e:
         print(f"Error fetching holder count: {e}")
         return 0
