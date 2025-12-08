@@ -1,24 +1,24 @@
 import json
 import os
 import datetime
-import requests
+import aiohttp
 import tweepy
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-# Constants (replace with your actual values)
-TELEGRAM_TOKEN = 'YOUR_TELEGRAM_TOKEN_HERE'
-TWITTER_BEARER_TOKEN = 'YOUR_TWITTER_BEARER_TOKEN_HERE'  # For tweepy Client
-BASESCAN_API_KEY = 'YOUR_BASESCAN_API_KEY_HERE'
-CONTRACT_ADDRESS = '0x2511bba5ae4ff53c7942251777964153e25588952e1'
+# Constants - use environment variables for sensitive data
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN', 'YOUR_TELEGRAM_TOKEN_HERE')
+TWITTER_BEARER_TOKEN = os.getenv('TWITTER_BEARER_TOKEN', 'YOUR_TWITTER_BEARER_TOKEN_HERE')
+BASESCAN_API_KEY = os.getenv('BASESCAN_API_KEY', 'YOUR_BASESCAN_API_KEY_HERE')
+CONTRACT_ADDRESS = '0x2511bba5ae4ff53c7942251777964153e2558895'  # Fixed: 42-character Ethereum address
 DEXSCREENER_URL = 'https://api.dexscreener.com/latest/dex/pairs/base/0x50a01f509d3455632ea906c2e5e7c8f2f836b21d'
 OFFICIAL_X_USERNAME = 'basewifhat'
 OFFICIAL_X_URL = 'https://x.com/basewifhat'
-UNISWAP_BUY_URL = 'https://app.uniswap.org/#/swap?outputCurrency=' + CONTRACT_ADDRESS + '&chain=base'  # Example Uniswap link
+UNISWAP_BUY_URL = 'https://app.uniswap.org/#/swap?outputCurrency=' + CONTRACT_ADDRESS + '&chain=base'
 DEXSCREENER_CHART_URL = 'https://dexscreener.com/base/0x50a01f509d3455632ea906c2e5e7c8f2f836b21d'
-CHAT_ID = -1001234567890  # Your Telegram group chat ID (integer, get via bot or API)
+CHAT_ID = int(os.getenv('TELEGRAM_CHAT_ID', '-1001234567890'))
 SHILL_MESSAGE = "Your shill of the day is ready, Chad: Tired of the same old dogs and frogs? The Hattenning is here on Base. Zero tax, community-run, and an unstoppable vibe. Don't be late to the party. $BWIF #Base #BaseWifHat"
-LAST_TWEET_FILE = 'last_tweet_id.json'  # For storing last seen tweet ID
+LAST_TWEET_FILE = 'last_tweet_id.json'
 
 # Milestones
 MC_TARGET = 1000000
@@ -30,13 +30,14 @@ X_FOLLOWERS_TARGET = 10000
 # Data Fetching Functions
 async def get_price_mc_lp():
     try:
-        response = requests.get(DEXSCREENER_URL)
-        response.raise_for_status()
-        data = response.json()['pair']
-        price = float(data['priceUsd'])
-        mc = data['fdv']
-        lp = data['liquidity']['usd']
-        return price, mc, lp
+        async with aiohttp.ClientSession() as session:
+            async with session.get(DEXSCREENER_URL) as response:
+                response.raise_for_status()
+                data = (await response.json())['pair']
+                price = float(data['priceUsd'])
+                mc = data['fdv']
+                lp = data['liquidity']['usd']
+                return price, mc, lp
     except Exception as e:
         print(f"Error fetching DexScreener: {e}")
         return 0, 0, 0
@@ -44,9 +45,11 @@ async def get_price_mc_lp():
 async def get_holder_count():
     try:
         url = f"https://api.basescan.org/api?module=stats&action=tokenholdercount&contractaddress={CONTRACT_ADDRESS}&apikey={BASESCAN_API_KEY}"
-        response = requests.get(url)
-        response.raise_for_status()
-        return int(response.json()['result'])
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                response.raise_for_status()
+                data = await response.json()
+                return int(data['result'])
     except Exception as e:
         print(f"Error fetching holder count: {e}")
         return 0
